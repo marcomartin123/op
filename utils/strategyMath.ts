@@ -1,6 +1,8 @@
 import { LegInstrument, OptionType, PayoffData, Side, StrategyLeg, StrategyStats } from '../types';
 
 const DEFAULT_CONTRACT_SIZE = 100;
+const PAYOFF_RANGE_PCT = 40;
+const PAYOFF_POINTS = 320;
 
 export const calculateLegPayoff = (leg: StrategyLeg, underlyingPrice: number): number => {
   const { instrument, type, side, strike, premium, quantity, contractSize } = leg;
@@ -29,42 +31,22 @@ export const calculateLegPayoff = (leg: StrategyLeg, underlyingPrice: number): n
 };
 
 export const generatePayoffData = (legs: StrategyLeg[], currentPrice: number): PayoffData[] => {
-  if (legs.length === 0) return [];
+  if (legs.length === 0 || !Number.isFinite(currentPrice) || currentPrice <= 0) return [];
 
-  const optionStrikes = legs
-    .filter(leg => leg.instrument === LegInstrument.OPTION)
-    .map(leg => leg.strike)
-    .filter((val): val is number => typeof val === 'number' && Number.isFinite(val));
-
-  const underlyingEntries = legs
-    .filter(leg => leg.instrument === LegInstrument.UNDERLYING)
-    .map(leg => leg.premium)
-    .filter(val => Number.isFinite(val));
-
-  const referencePoints = [currentPrice, ...optionStrikes, ...underlyingEntries]
-    .filter(val => Number.isFinite(val) && val > 0);
-
-  if (referencePoints.length === 0) return [];
-
-  const minStrike = Math.min(...referencePoints);
-  const maxStrike = Math.max(...referencePoints);
-
-  const range = maxStrike - minStrike;
-  const buffer = range * 0.5 || maxStrike * 0.2 || 1;
-  const start = Math.max(0, minStrike - buffer);
-  const end = maxStrike + buffer;
-  const points = 320;
-  const span = end - start;
-  const step = span / points;
+  const startPct = -PAYOFF_RANGE_PCT;
+  const endPct = PAYOFF_RANGE_PCT;
+  const span = endPct - startPct;
+  const step = span / PAYOFF_POINTS;
 
   const data: PayoffData[] = [];
-  for (let i = 0; i <= points; i++) {
-    const p = start + step * i;
+  for (let i = 0; i <= PAYOFF_POINTS; i++) {
+    const movePct = startPct + step * i;
+    const price = currentPrice * (1 + movePct / 100);
     let totalProfit = 0;
     for (const leg of legs) {
-      totalProfit += calculateLegPayoff(leg, p);
+      totalProfit += calculateLegPayoff(leg, price);
     }
-    data.push({ price: Number(p.toFixed(4)), profit: Number(totalProfit.toFixed(4)) });
+    data.push({ movePct: Number(movePct.toFixed(4)), profit: Number(totalProfit.toFixed(4)) });
   }
 
   return data;
@@ -103,13 +85,23 @@ export const calculateStrategyStats = (
   const isMaxLossUnlimited = (leftSlope > 0 && first < -10000) || (rightSlope < 0 && last < -10000);
 
   const breakEvens: number[] = [];
+  const breakEvenKeys = new Set<string>();
   for (let i = 0; i < payoffData.length - 1; i++) {
-    const a = payoffData[i].profit;
-    const b = payoffData[i + 1].profit;
-    if ((a <= 0 && b > 0) || (a >= 0 && b < 0)) {
-      breakEvens.push(payoffData[i].price);
+    const left = payoffData[i];
+    const right = payoffData[i + 1];
+    if ((left.profit <= 0 && right.profit > 0) || (left.profit >= 0 && right.profit < 0)) {
+      const delta = right.profit - left.profit;
+      const t = delta !== 0 ? (0 - left.profit) / delta : 0;
+      const movePct = left.movePct + t * (right.movePct - left.movePct);
+      const rounded = Number(movePct.toFixed(4));
+      const key = rounded.toFixed(4);
+      if (!breakEvenKeys.has(key)) {
+        breakEvenKeys.add(key);
+        breakEvens.push(rounded);
+      }
     }
   }
+  breakEvens.sort((a, b) => a - b);
 
   const netPremium = legs.reduce((acc, leg) => {
     const multiplier = leg.contractSize || DEFAULT_CONTRACT_SIZE;

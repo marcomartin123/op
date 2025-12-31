@@ -9,9 +9,7 @@ import {
   ScatterChart,
   Tooltip,
   XAxis,
-  YAxis,
-  AreaChart,
-  Area
+  YAxis
 } from 'recharts';
 import { MarketAsset, StrategyLeg } from '../types';
 import { HistoryFrequency, fetchYahooHistory, formatCurrency, formatNumber } from '../services/api';
@@ -104,10 +102,13 @@ const BacktestPopup: React.FC<Props> = ({
     return toMonthInputValue(lastMonth);
   }, []);
 
-  const [frequency, setFrequency] = useState<BacktestFrequency>('WEEKLY');
+  const [frequency, setFrequency] = useState<BacktestFrequency>('MONTHLY');
   const [periodMonths, setPeriodMonths] = useState(60);
-  const [startMonth, setStartMonth] = useState(() => shiftMonthValue(defaultEndMonth, -59));
-  const [endMonth, setEndMonth] = useState(defaultEndMonth);
+  const endMonth = defaultEndMonth;
+  const startMonth = useMemo(
+    () => shiftMonthValue(endMonth, -(periodMonths - 1)),
+    [endMonth, periodMonths]
+  );
   const [monthlyWithdrawal, setMonthlyWithdrawal] = useState(0);
   const [applyLosses, setApplyLosses] = useState(false);
   const [showProfitChart, setShowProfitChart] = useState(false);
@@ -120,10 +121,6 @@ const BacktestPopup: React.FC<Props> = ({
     setSelectedSymbol(assetSymbol);
   }, [assetSymbol]);
 
-  useEffect(() => {
-    const nextStart = shiftMonthValue(endMonth, -(periodMonths - 1));
-    if (nextStart !== startMonth) setStartMonth(nextStart);
-  }, [periodMonths, endMonth, startMonth]);
 
   const assetOptions = useMemo(() => {
     const unique = new Set<string>();
@@ -134,13 +131,6 @@ const BacktestPopup: React.FC<Props> = ({
   }, [assetSymbol, marketAssets, selectedSymbol]);
 
   const payoffCurve = useMemo(() => buildPayoffCurve(legs, currentPrice), [legs, currentPrice]);
-  const payoffChartData = useMemo(() => {
-    if (!payoffCurve.variations.length || payoffCurve.basePrice <= 0) return [];
-    return payoffCurve.variations.map((variation, idx) => ({
-      price: Number((payoffCurve.basePrice * (1 + variation)).toFixed(4)),
-      profit: payoffCurve.returns[idx]
-    }));
-  }, [payoffCurve]);
 
   const strategyCost = useMemo(() => calculateStrategyCost(legs), [legs]);
   const baseCapital = useMemo(
@@ -238,9 +228,6 @@ const BacktestPopup: React.FC<Props> = ({
     return map;
   }, [rows]);
 
-  const operationLabel = strategyCost >= 0 ? 'Credito' : 'Debito';
-  const operationTone = strategyCost >= 0 ? 'text-emerald-500' : 'text-amber-500';
-
   const palette = theme === 'dark'
     ? {
         grid: '#27272a',
@@ -300,20 +287,17 @@ const BacktestPopup: React.FC<Props> = ({
         className="bg-white dark:bg-[#0c0c0e] w-full max-w-[1400px] max-h-[92vh] rounded-[32px] border border-zinc-200 dark:border-zinc-800 shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/5"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-8 py-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+        <div className="px-5 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-black text-zinc-900 dark:text-white uppercase tracking-tight">
+            <h2 className="text-[15px] font-black leading-none text-zinc-900 dark:text-white uppercase tracking-tight">
               Backtest Estrategia
             </h2>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 mt-1">
-              {selectedSymbol} - {frequency === 'WEEKLY' ? 'Semanal' : 'Mensal'}
-            </p>
           </div>
           <button
             onClick={onClose}
-            className="w-10 h-10 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all"
+            className="w-7 h-7 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -323,15 +307,6 @@ const BacktestPopup: React.FC<Props> = ({
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
             <div className="xl:col-span-3 space-y-5">
               <div className="bg-zinc-50 dark:bg-[#121214]/60 border border-zinc-200 dark:border-zinc-800/60 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Parametros</span>
-                  <button
-                    onClick={runSimulation}
-                    className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border border-blue-500/40 text-blue-600 dark:text-blue-400 hover:bg-blue-500 hover:text-white transition-all"
-                  >
-                    Rodar agora
-                  </button>
-                </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="flex flex-col gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-400">
@@ -355,26 +330,6 @@ const BacktestPopup: React.FC<Props> = ({
                       max={120}
                       value={periodMonths}
                       onChange={(e) => setPeriodMonths(Number(e.target.value) || 1)}
-                      className="w-full bg-white dark:bg-black/40 border border-zinc-200 dark:border-zinc-800/60 rounded-lg px-2 py-1 text-[11px] mono text-zinc-800 dark:text-zinc-100 outline-none"
-                    />
-                  </label>
-
-                  <label className="flex flex-col gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                    Inicio
-                    <input
-                      type="month"
-                      value={startMonth}
-                      onChange={(e) => setStartMonth(e.target.value)}
-                      className="w-full bg-white dark:bg-black/40 border border-zinc-200 dark:border-zinc-800/60 rounded-lg px-2 py-1 text-[11px] mono text-zinc-800 dark:text-zinc-100 outline-none"
-                    />
-                  </label>
-
-                  <label className="flex flex-col gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                    Fim
-                    <input
-                      type="month"
-                      value={endMonth}
-                      onChange={(e) => setEndMonth(e.target.value)}
                       className="w-full bg-white dark:bg-black/40 border border-zinc-200 dark:border-zinc-800/60 rounded-lg px-2 py-1 text-[11px] mono text-zinc-800 dark:text-zinc-100 outline-none"
                     />
                   </label>
@@ -425,10 +380,6 @@ const BacktestPopup: React.FC<Props> = ({
                 </div>
               </div>
               <div className="bg-white dark:bg-[#0c0c0e]/60 border border-zinc-200 dark:border-zinc-800/60 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Resultados</span>
-                  <span className={`text-[10px] font-black uppercase ${operationTone}`}>{operationLabel}</span>
-                </div>
 
                 <div className="grid grid-cols-2 gap-3 text-[10px]">
                   <div>
@@ -494,59 +445,11 @@ const BacktestPopup: React.FC<Props> = ({
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-[#0c0c0e]/60 border border-zinc-200 dark:border-zinc-800/60 rounded-2xl p-4 space-y-3">
-                <div className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Payoff referencia</div>
-                {payoffChartData.length > 0 ? (
-                  <div className="h-[200px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={payoffChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="payoffFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={palette.primary} stopOpacity={0.4} />
-                            <stop offset="95%" stopColor={palette.primary} stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke={palette.grid} vertical={false} />
-                        <XAxis dataKey="price" hide />
-                        <YAxis hide />
-                        <ReferenceLine y={0} stroke={palette.axis} strokeWidth={1} />
-                        <Area type="monotone" dataKey="profit" stroke={palette.primary} fill="url(#payoffFill)" strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <div className="text-[11px] text-zinc-400">Sem payoff disponivel.</div>
-                )}
-
-                <div className="space-y-2">
-                  {legs.length === 0 ? (
-                    <div className="text-[11px] text-zinc-400">Nenhuma perna adicionada.</div>
-                  ) : (
-                    legs.map((leg) => {
-                      const sideLabel = leg.side === 'BUY' ? 'Compra' : 'Venda';
-                      const typeLabel = leg.instrument === 'UNDERLYING'
-                        ? 'Ativo'
-                        : leg.type === 'CALL'
-                        ? 'Call'
-                        : 'Put';
-                      const detailLabel = leg.instrument === 'UNDERLYING'
-                        ? `Entrada ${formatNumber(leg.premium, 2)}`
-                        : `Strike ${formatNumber(leg.strike ?? 0, 2)}`;
-                      return (
-                        <div key={leg.id} className="flex items-center justify-between text-[10px]">
-                          <div className="font-black uppercase tracking-widest text-zinc-500">{sideLabel} {typeLabel}</div>
-                          <div className="mono text-zinc-600 dark:text-zinc-300">{leg.symbol} - {detailLabel} - x{leg.quantity}</div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
             </div>
 
             <div className="xl:col-span-5 space-y-5">
-              <div className="bg-zinc-50 dark:bg-[#121214]/60 border border-zinc-200 dark:border-zinc-800/60 rounded-2xl p-4">
-                <div className="flex items-center justify-between mb-3">
+              <div className="bg-zinc-50 dark:bg-[#121214]/60 border border-zinc-200 dark:border-zinc-800/60 rounded-2xl p-2">
+                <div className="flex items-center justify-between mb-2">
                   <div>
                     <div className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Retornos</div>
                     <div className="text-[9px] text-zinc-500">Bolhas por desempenho da estrategia</div>
@@ -562,7 +465,7 @@ const BacktestPopup: React.FC<Props> = ({
                   </label>
                 </div>
 
-                <div className="h-[280px]">
+                <div className="h-[210px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={palette.grid} vertical={false} />
@@ -607,15 +510,15 @@ const BacktestPopup: React.FC<Props> = ({
                 </div>
               </div>
 
-              <div className="bg-zinc-50 dark:bg-[#121214]/60 border border-zinc-200 dark:border-zinc-800/60 rounded-2xl p-4">
-                <div className="flex items-center justify-between mb-3">
+              <div className="bg-zinc-50 dark:bg-[#121214]/60 border border-zinc-200 dark:border-zinc-800/60 rounded-2xl p-2">
+                <div className="flex items-center justify-between mb-2">
                   <div>
                     <div className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Evolucao do capital</div>
                     <div className="text-[9px] text-zinc-500">Com retirada vs. sem retirada</div>
                   </div>
                 </div>
 
-                <div className="h-[220px]">
+                <div className="h-[170px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={equityPoints} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={palette.grid} vertical={false} />
@@ -697,18 +600,6 @@ const BacktestPopup: React.FC<Props> = ({
               </div>
             </div>
           </div>
-        </div>
-
-        <div className="px-8 py-4 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
-            {loading ? 'Rodando backtest...' : error ? error : 'Backtest finalizado'}
-          </span>
-          <button
-            onClick={onClose}
-            className="px-8 py-2.5 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:opacity-80 transition-all"
-          >
-            Fechar
-          </button>
         </div>
       </div>
     </div>

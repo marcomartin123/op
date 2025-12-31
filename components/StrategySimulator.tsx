@@ -49,7 +49,12 @@ const StrategySimulator: React.FC<Props> = ({
     return map;
   }, [strikePairs]);
 
-  const percentBase = stats.capitalAtRisk && stats.capitalAtRisk > 0 ? stats.capitalAtRisk : null;
+  const percentBase =
+    stats.capitalAtRisk && stats.capitalAtRisk > 0
+      ? stats.capitalAtRisk
+      : Math.abs(stats.netPremium) > 0
+      ? Math.abs(stats.netPremium)
+      : 1;
 
   const formatSignedCurrency = (val: number) => `${val >= 0 ? '+' : ''}${formatCurrency(val)}`;
   const formatSignedPercent = (val: number) => `${val >= 0 ? '+' : ''}${formatNumber(val, 2)}%`;
@@ -152,12 +157,12 @@ const StrategySimulator: React.FC<Props> = ({
         </div>
 
         <div className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800/50 bg-zinc-50/60 dark:bg-black/30">
-          <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400">Break-even</div>
+          <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400">Break-even (%)</div>
           <div className="mt-2 flex flex-wrap gap-1">
             {stats.breakEvens.length > 0 ? (
               stats.breakEvens.map(be => (
                 <span key={be} className="px-2 py-0.5 rounded-full text-[10px] mono border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-200 bg-white/80 dark:bg-zinc-900/40">
-                  R$ {formatNumber(be, 2)}
+                  {formatSignedPercent(be)}
                 </span>
               ))
             ) : (
@@ -344,6 +349,7 @@ const StrategySimulator: React.FC<Props> = ({
               currentPrice={currentPrice}
               theme={theme}
               percentBase={percentBase}
+              breakEvens={stats.breakEvens}
             />
           ) : (
             <div className="h-[360px] flex flex-col items-center justify-center text-zinc-400 gap-2 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl">

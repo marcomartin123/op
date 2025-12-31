@@ -271,8 +271,7 @@ const parseYahooHistory = (data: YahooChartResponse): HistoryPoint[] => {
   const result = chart?.result?.[0];
   const timestamps = result?.timestamp || [];
   const quote = result?.indicators?.quote?.[0];
-  const adj = result?.indicators?.adjclose?.[0];
-  const closes = (adj?.adjclose && adj.adjclose.length ? adj.adjclose : quote?.close) || [];
+  const closes = quote?.close || [];
 
   const points: Array<{ time: Date; close: number }> = [];
   for (let i = 0; i < timestamps.length; i += 1) {
@@ -307,7 +306,7 @@ export const fetchYahooHistory = async (
   if (!yahooSymbol) return [];
 
   const interval = frequency === 'WEEKLY' ? '1wk' : '1mo';
-  const endpoint = `/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?formatted=false&includeAdjustedClose=true&interval=${interval}&period1=${from}&period2=${to}&symbol=${encodeURIComponent(yahooSymbol)}&lang=en-US&region=US`;
+  const endpoint = `/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?formatted=false&includeAdjustedClose=false&interval=${interval}&period1=${from}&period2=${to}&symbol=${encodeURIComponent(yahooSymbol)}&lang=en-US&region=US`;
 
   const response = await fetch(joinUrl(YAHOO_BASE_URL, endpoint), {
     headers: {

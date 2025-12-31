@@ -159,7 +159,7 @@ export interface StrategyLeg {
 }
 
 export interface PayoffData {
-  price: number;
+  movePct: number;
   profit: number;
 }
 
