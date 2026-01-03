@@ -11,7 +11,7 @@ import StrategySimulator from './components/StrategySimulator';
 import UnifiedScannerPopup from './components/UnifiedScannerPopup';
 import AiAdvisorPopup from './components/AiAdvisorPopup';
 import PositionPopup from './components/PositionPopup';
-import BacktestPopup from './components/BacktestPopup';
+
 import PollingControl from './components/PollingControl';
 import { GoogleGenAI } from "@google/genai";
 
@@ -54,22 +54,22 @@ const App: React.FC = () => {
   const [isFromCache, setIsFromCache] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedMaturityIdx, setSelectedMaturityIdx] = useState(0);
-  
+
   const [showUnifiedScanner, setShowUnifiedScanner] = useState(false);
   const [showPositionPopup, setShowPositionPopup] = useState(false);
-  const [showBacktestPopup, setShowBacktestPopup] = useState(false);
+
   const [showSnapshotPopup, setShowSnapshotPopup] = useState(false);
   const [positionData, setPositionData] = useState<NPositionData | null>(null);
-  
+
   const [earnings, setEarnings] = useState<EarningItem[]>([]);
   const [showAiAdvisor, setShowAiAdvisor] = useState(false);
   const [aiCurrentSymbol, setAiCurrentSymbol] = useState("");
   const [aiInfo, setAiInfo] = useState('');
-  const [aiSources, setAiSources] = useState<{title: string, uri: string}[]>([]);
+  const [aiSources, setAiSources] = useState<{ title: string, uri: string }[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
 
   const [isPollingActive, setIsPollingActive] = useState(false);
-  
+
   const pendingMaturityDate = useRef<string | null>(null);
   const dataRef = useRef<OplabData | null>(null);
   const currentMaturityIdxRef = useRef(0);
@@ -80,10 +80,11 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('trader-theme');
     return (saved as 'dark' | 'light') || 'dark';
   });
-  
+
   const [filterCallPositive, setFilterCallPositive] = useState(false);
   const [filterBoxPositive, setFilterBoxPositive] = useState(false);
   const [filterPutPositive, setFilterPutPositive] = useState(false);
+  const [filterAtmOnly, setFilterAtmOnly] = useState(false);
   const [strategyLegs, setStrategyLegs] = useState<StrategyLeg[]>([]);
   const [isOptionsGridCollapsed, setIsOptionsGridCollapsed] = useState(false);
   const [snapshotRecords, setSnapshotRecords] = useState<StoredSnapshotRecord[]>([]);
@@ -143,15 +144,15 @@ const App: React.FC = () => {
 
   const loadAssetData = useCallback(async (symbol: string, isSilent: boolean = false, forceRefresh: boolean = false) => {
     try {
-      setError(null); 
-      
+      setError(null);
+
       if (!isSilent) {
         if (!dataRef.current) setLoading(true);
         else setRefreshing(true);
       }
-      
+
       const { data: result, fromCache } = await fetchOptionsData(symbol, forceRefresh);
-      
+
       if (result && result.pageProps) {
         dataRef.current = result;
         setData(result);
@@ -222,7 +223,7 @@ const App: React.FC = () => {
       let cleanHtml = response.text || "Sem informações.";
       cleanHtml = cleanHtml.replace(/```html/g, '').replace(/```/g, '').trim();
       setAiInfo(cleanHtml);
-      
+
       const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
       if (chunks) {
         setAiSources(chunks.filter(c => c.web).map(c => ({ title: c.web!.title || 'Fonte', uri: c.web!.uri })));
@@ -243,6 +244,7 @@ const App: React.FC = () => {
     setFilterCallPositive(false);
     setFilterBoxPositive(false);
     setFilterPutPositive(false);
+    setFilterAtmOnly(false);
   }, []);
 
   const handleTogglePolling = useCallback(() => {
@@ -331,6 +333,7 @@ const App: React.FC = () => {
       filterCallPositive,
       filterBoxPositive,
       filterPutPositive,
+      filterAtmOnly,
       strategyLegs,
       theme,
       isPollingActive: false,
@@ -437,6 +440,7 @@ const App: React.FC = () => {
     if (typeof snapshot.filterCallPositive === 'boolean') setFilterCallPositive(snapshot.filterCallPositive);
     if (typeof snapshot.filterBoxPositive === 'boolean') setFilterBoxPositive(snapshot.filterBoxPositive);
     if (typeof snapshot.filterPutPositive === 'boolean') setFilterPutPositive(snapshot.filterPutPositive);
+    if (typeof snapshot.filterAtmOnly === 'boolean') setFilterAtmOnly(snapshot.filterAtmOnly);
     if (snapshot.strategyLegs) setStrategyLegs(snapshot.strategyLegs);
     if (snapshot.lastUpdate) setLastUpdate(new Date(snapshot.lastUpdate));
     if (snapshot.selectedAsset) setSelectedAsset(snapshot.selectedAsset);
@@ -506,7 +510,8 @@ const App: React.FC = () => {
     setShowSnapshotPopup(false);
   }, [applySnapshot, snapshotRecords, selectedSnapshotId]);
 
-  const hasActiveFilters = filterCallPositive || filterBoxPositive || filterPutPositive;
+
+  const hasActiveFilters = filterCallPositive || filterBoxPositive || filterPutPositive || filterAtmOnly;
 
   const currentSeries = data?.pageProps?.series?.[selectedMaturityIdx];
   const referenceTime = data?.pageProps?.time;
@@ -515,9 +520,9 @@ const App: React.FC = () => {
   const assetSymbol = data?.pageProps?.asset.symbol || selectedAsset;
   const assetContractSize = data?.pageProps?.asset.contract_size || 1;
   const spotPrice = data?.pageProps?.asset.close || 0;
-  
+
   const simCurrentPrice = spotPrice || assetAsk || 0;
-  
+
   const handleSimulateUnderlying = useCallback((side: Side) => {
     const price = side === Side.BUY ? assetAsk : assetBid;
     if (price <= 0) return;
@@ -535,7 +540,7 @@ const App: React.FC = () => {
       }
     ]);
   }, [assetAsk, assetBid, assetSymbol, assetContractSize]);
-  
+
   const calendarDays = useMemo(() => {
     if (!currentSeries) return 1;
     return getCalendarDays(addOneDay(currentSeries.due_date), referenceTime);
@@ -552,8 +557,15 @@ const App: React.FC = () => {
 
   const filteredStrikes = useMemo(() => {
     if (!currentSeries?.strikes) return [];
-    
+
     return currentSeries.strikes.filter(s => {
+
+      if (filterAtmOnly) {
+        const closest = currentSeries.strikes.reduce((prev, curr) => {
+          return (Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev);
+        });
+        if (s.strike !== closest.strike) return false;
+      }
 
       const callBid = s.call.bid || 0;
       const putAsk = s.put.ask || 0;
@@ -584,7 +596,7 @@ const App: React.FC = () => {
 
       return true;
     });
-  }, [currentSeries, filterCallPositive, filterBoxPositive, filterPutPositive, assetAsk, spotPrice]);
+  }, [currentSeries, filterCallPositive, filterBoxPositive, filterPutPositive, filterAtmOnly, assetAsk, spotPrice]);
 
   const activeOptionSymbols = useMemo(() => {
     return strategyLegs
@@ -603,20 +615,20 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[#08080a] text-zinc-900 dark:text-zinc-300 antialiased font-medium pb-12 transition-colors">
-      
+
       {showAiAdvisor && (
         <AiAdvisorPopup symbol={aiCurrentSymbol || selectedAsset} info={aiInfo} sources={aiSources} loading={aiLoading} onClose={() => setShowAiAdvisor(false)} />
       )}
 
       {showUnifiedScanner && (
-        <UnifiedScannerPopup 
-          marketAssets={marketAssets.length > 0 ? marketAssets : (data?.pageProps?.assets || [])} 
-          earnings={earnings} 
-          onRefreshEarnings={loadEarnings} 
-          onClose={() => setShowUnifiedScanner(false)} 
-          onNavigate={handleScannerNavigate} 
+        <UnifiedScannerPopup
+          marketAssets={marketAssets.length > 0 ? marketAssets : (data?.pageProps?.assets || [])}
+          earnings={earnings}
+          onRefreshEarnings={loadEarnings}
+          onClose={() => setShowUnifiedScanner(false)}
+          onNavigate={handleScannerNavigate}
           onSelectAssetOnly={setSelectedAsset}
-          onAiClick={fetchAiInsights} 
+          onAiClick={fetchAiInsights}
           referenceTime={data?.pageProps?.time}
         />
       )}
@@ -640,32 +652,23 @@ const App: React.FC = () => {
 
 
       {showPositionPopup && positionData && (
-        <PositionPopup 
-          data={positionData} 
-          marketData={data} 
-          onClose={() => setShowPositionPopup(false)} 
+        <PositionPopup
+          data={positionData}
+          marketData={data}
+          onClose={() => setShowPositionPopup(false)}
         />
       )}
 
 
-      {showBacktestPopup && (
-        <BacktestPopup
-          legs={strategyLegs}
-          currentPrice={simCurrentPrice}
-          assetSymbol={assetSymbol}
-          marketAssets={marketAssets.length > 0 ? marketAssets : (data?.pageProps?.assets || [])}
-          theme={theme}
-          onClose={() => setShowBacktestPopup(false)}
-        />
-      )}
+
 
       <div className={`max-w-[1920px] mx-auto flex flex-col gap-6 px-6 py-6 transition-all duration-300 ${refreshing ? 'opacity-40 blur-[2px]' : 'opacity-100'}`}>
-        
+
         {data && (
-          <MemoizedDashboardHeader 
+          <MemoizedDashboardHeader
             asset={data.pageProps.asset} marketAssets={marketAssets.length > 0 ? marketAssets : (data.pageProps.assets || [])}
-            theme={theme} onThemeToggle={toggleTheme} onAiClick={() => fetchAiInsights(selectedAsset)} 
-            onAssetClick={setSelectedAsset} 
+            theme={theme} onThemeToggle={toggleTheme} onAiClick={() => fetchAiInsights(selectedAsset)}
+            onAssetClick={setSelectedAsset}
             onScannerClick={() => setShowUnifiedScanner(true)}
             onSnapshotOpen={handleLoadSnapshot}
           />
@@ -673,61 +676,70 @@ const App: React.FC = () => {
 
         <main className="w-full space-y-6">
           <div className="flex flex-wrap items-center gap-3">
-             {data && (
-               <MemoizedMaturitySelector 
-                 series={data.pageProps.series} 
-                 selectedIdx={selectedMaturityIdx} 
-                 onSelect={handleMaturityChange} 
-                 onSelectWithFilter={handleMaturityFilterSelect}
-                 assetAsk={assetAsk}
-                 spotPrice={spotPrice}
-                 referenceTime={referenceTime} 
-               />
-             )}
+            {data && (
+              <MemoizedMaturitySelector
+                series={data.pageProps.series}
+                selectedIdx={selectedMaturityIdx}
+                onSelect={handleMaturityChange}
+                onSelectWithFilter={handleMaturityFilterSelect}
+                assetAsk={assetAsk}
+                spotPrice={spotPrice}
+                referenceTime={referenceTime}
+              />
+            )}
 
 
-             {/* Bolinhas de Filtro - Padronizadas com o Scanner */}
-             <div className="flex items-center gap-3 px-4 py-1.5 bg-white dark:bg-[#121214] border border-zinc-200 dark:border-zinc-800/50 rounded-2xl shadow-xl h-[60px]">
-                <div className="flex flex-col items-start mr-1">
-                   <span className="text-[9px] text-zinc-400 dark:text-zinc-600 font-black uppercase tracking-wider leading-none mb-1">Positivas</span>
-                   <span className="text-[7px] font-black uppercase text-zinc-400/50 leading-none">C/B/P Only</span>
-                </div>
-                
-                <div className="flex items-center gap-2.5 bg-zinc-50/50 dark:bg-zinc-900/50 p-1 rounded-lg border border-zinc-100 dark:border-zinc-800/40">
-                  <button 
-                    onClick={() => setFilterCallPositive(!filterCallPositive)}
-                    className={`w-6 h-6 rounded-full border-2 transition-all flex items-center justify-center ${filterCallPositive ? 'bg-amber-500 border-amber-500 text-white' : 'bg-transparent border-amber-500/30 text-zinc-400'}`}
-                  >
-                    <span className="text-[8px] font-black uppercase">C</span>
-                  </button>
+            {/* Bolinhas de Filtro - Padronizadas com o Scanner */}
+            <div className="flex items-center gap-3 px-4 py-1.5 bg-white dark:bg-[#121214] border border-zinc-200 dark:border-zinc-800/50 rounded-2xl shadow-xl h-[60px]">
+              <div className="flex flex-col items-start mr-1">
+                <span className="text-[9px] text-zinc-400 dark:text-zinc-600 font-black uppercase tracking-wider leading-none mb-1">Positivas</span>
+                <span className="text-[7px] font-black uppercase text-zinc-400/50 leading-none">C/B/P Only</span>
+              </div>
 
-                  <button 
-                    onClick={() => setFilterBoxPositive(!filterBoxPositive)}
-                    className={`w-6 h-6 rounded-full border-2 transition-all flex items-center justify-center ${filterBoxPositive ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-transparent border-emerald-500/30 text-zinc-400'}`}
-                  >
-                    <span className="text-[8px] font-black uppercase">B</span>
-                  </button>
+              <div className="flex items-center gap-2.5 bg-zinc-50/50 dark:bg-zinc-900/50 p-1 rounded-lg border border-zinc-100 dark:border-zinc-800/40">
+                <button
+                  onClick={() => setFilterCallPositive(!filterCallPositive)}
+                  className={`w-6 h-6 rounded-full border-2 transition-all flex items-center justify-center ${filterCallPositive ? 'bg-amber-500 border-amber-500 text-white' : 'bg-transparent border-amber-500/30 text-zinc-400'}`}
+                >
+                  <span className="text-[8px] font-black uppercase">C</span>
+                </button>
 
-                  <button 
-                    onClick={() => setFilterPutPositive(!filterPutPositive)}
-                    className={`w-6 h-6 rounded-full border-2 transition-all flex items-center justify-center ${filterPutPositive ? 'bg-purple-600 border-purple-600 text-white' : 'bg-transparent border-purple-600/30 text-zinc-400'}`}
-                  >
-                    <span className="text-[8px] font-black uppercase">P</span>
-                  </button>
-                </div>
-             </div>
+                <button
+                  onClick={() => setFilterBoxPositive(!filterBoxPositive)}
+                  className={`w-6 h-6 rounded-full border-2 transition-all flex items-center justify-center ${filterBoxPositive ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-transparent border-emerald-500/30 text-zinc-400'}`}
+                >
+                  <span className="text-[8px] font-black uppercase">B</span>
+                </button>
 
-             <button 
-               onClick={() => { loadPositionData(); setShowPositionPopup(true); }}
-               className="flex flex-col items-center justify-center px-4 h-[60px] bg-indigo-500/10 border border-indigo-500/30 text-indigo-600 rounded-2xl shadow-xl hover:bg-indigo-500 hover:text-white transition-all group"
-             >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2-2v12a2 2 0 002 2z" />
-                </svg>
-                <span className="text-[8px] font-black uppercase tracking-widest">Ver Posição</span>
-             </button>
+                <button
+                  onClick={() => setFilterPutPositive(!filterPutPositive)}
+                  className={`w-6 h-6 rounded-full border-2 transition-all flex items-center justify-center ${filterPutPositive ? 'bg-purple-600 border-purple-600 text-white' : 'bg-transparent border-purple-600/30 text-zinc-400'}`}
+                >
+                  <span className="text-[8px] font-black uppercase">P</span>
+                </button>
 
-             <div className="flex-1 min-w-[260px] max-w-[720px]">
+                <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-800 mx-1"></div>
+
+                <button
+                  onClick={() => setFilterAtmOnly(!filterAtmOnly)}
+                  className={`w-8 h-6 rounded-full border-2 transition-all flex items-center justify-center ${filterAtmOnly ? 'bg-zinc-600 border-zinc-600 text-white' : 'bg-transparent border-zinc-500/30 text-zinc-400'}`}
+                >
+                  <span className="text-[8px] font-black uppercase">ATM</span>
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => { loadPositionData(); setShowPositionPopup(true); }}
+              className="flex flex-col items-center justify-center px-4 h-[60px] bg-indigo-500/10 border border-indigo-500/30 text-indigo-600 rounded-2xl shadow-xl hover:bg-indigo-500 hover:text-white transition-all group"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2-2v12a2 2 0 002 2z" />
+              </svg>
+              <span className="text-[8px] font-black uppercase tracking-widest">Ver Posição</span>
+            </button>
+
+            <div className="flex-1 min-w-[260px] max-w-[720px]">
               <SnapshotTimeline
                 records={snapshotRecords}
                 selectedId={selectedSnapshotId}
@@ -735,46 +747,46 @@ const App: React.FC = () => {
               />
             </div>
 
-             {hasActiveFilters && (
-               <button onClick={clearFilters} className="flex flex-col items-center justify-center w-[60px] h-[60px] bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800/50 rounded-2xl hover:bg-rose-500/5 group transition-all">
-                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-zinc-400 group-hover:text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                 <span className="text-[8px] font-black uppercase text-zinc-400 group-hover:text-rose-600">Limpar</span>
-               </button>
-             )}
+            {hasActiveFilters && (
+              <button onClick={clearFilters} className="flex flex-col items-center justify-center w-[60px] h-[60px] bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800/50 rounded-2xl hover:bg-rose-500/5 group transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-zinc-400 group-hover:text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                <span className="text-[8px] font-black uppercase text-zinc-400 group-hover:text-rose-600">Limpar</span>
+              </button>
+            )}
 
-             <div className="ml-auto flex items-center gap-6">
-                <PollingControl 
-                  isActive={isPollingActive} 
-                  onToggle={handleTogglePolling} 
-                  onTriggerUpdate={handleTriggerUpdate}
-                  lastUpdateTime={lastUpdate.toLocaleTimeString('pt-BR')}
-                  marketTime={marketTimeGmt3}
-                  selectedAsset={selectedAsset}
-                />
+            <div className="ml-auto flex items-center gap-6">
+              <PollingControl
+                isActive={isPollingActive}
+                onToggle={handleTogglePolling}
+                onTriggerUpdate={handleTriggerUpdate}
+                lastUpdateTime={lastUpdate.toLocaleTimeString('pt-BR')}
+                marketTime={marketTimeGmt3}
+                selectedAsset={selectedAsset}
+              />
 
-                <div className="flex flex-col items-center justify-center min-w-[100px]">
-                  <span className="text-[9px] uppercase font-black text-zinc-400">Data Source</span>
-                  <div className="flex flex-col items-center leading-none">
-                    <span className="text-base font-black mono text-blue-600">{filteredStrikes.length} <span className="text-[8px] opacity-40">Strikes</span></span>
-                    {isFromCache ? (
-                      <span className="px-1.5 py-0.5 bg-zinc-500/10 text-zinc-500 text-[6px] font-black rounded border border-zinc-500/20 mt-1 uppercase tracking-widest">Cached</span>
-                    ) : (
-                      <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-500 text-[6px] font-black rounded border border-emerald-500/20 mt-1 uppercase tracking-widest animate-pulse">Live Feed</span>
-                    )}
-                  </div>
+              <div className="flex flex-col items-center justify-center min-w-[100px]">
+                <span className="text-[9px] uppercase font-black text-zinc-400">Data Source</span>
+                <div className="flex flex-col items-center leading-none">
+                  <span className="text-base font-black mono text-blue-600">{filteredStrikes.length} <span className="text-[8px] opacity-40">Strikes</span></span>
+                  {isFromCache ? (
+                    <span className="px-1.5 py-0.5 bg-zinc-500/10 text-zinc-500 text-[6px] font-black rounded border border-zinc-500/20 mt-1 uppercase tracking-widest">Cached</span>
+                  ) : (
+                    <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-500 text-[6px] font-black rounded border border-emerald-500/20 mt-1 uppercase tracking-widest animate-pulse">Live Feed</span>
+                  )}
                 </div>
-             </div>
+              </div>
+            </div>
           </div>
 
           {data && (
             <>
-              <OptionsGrid 
-                strikes={filteredStrikes} 
-                spotPrice={spotPrice} 
-                assetAsk={assetAsk} 
-                daysToMaturity={calendarDays} 
-                isBoxFilterActive={filterBoxPositive} 
-                isCallFilterActive={filterCallPositive} 
+              <OptionsGrid
+                strikes={filteredStrikes}
+                spotPrice={spotPrice}
+                assetAsk={assetAsk}
+                daysToMaturity={calendarDays}
+                isBoxFilterActive={filterBoxPositive}
+                isCallFilterActive={filterCallPositive}
                 isCollapsed={isOptionsGridCollapsed}
                 onToggleCollapse={handleToggleOptionsGrid}
                 onSimulateLeg={handleSimulateLeg}
@@ -793,7 +805,7 @@ const App: React.FC = () => {
                 onRemoveLeg={handleRemoveLeg}
                 onUpdateLeg={handleUpdateLeg}
                 onClearLegs={handleClearLegs}
-                onOpenBacktest={() => setShowBacktestPopup(true)}
+                marketAssets={marketAssets.length > 0 ? marketAssets : (data?.pageProps?.assets || [])}
               />
             </>
           )}

@@ -19,6 +19,7 @@ export interface BacktestRow {
   strategyReturn: number;
   profit: number;
   withdrawal: number;
+  investment: number;
   capital: number;
   lossEvent: boolean;
 }
@@ -192,6 +193,7 @@ export interface BacktestInput {
   payoff: PayoffCurve;
   baseCapital: number;
   monthlyWithdrawal: number;
+  monthlyInvestment?: number;
   applyLosses: boolean;
   frequency: BacktestFrequency;
 }
@@ -201,6 +203,7 @@ export const runBacktest = ({
   payoff,
   baseCapital,
   monthlyWithdrawal,
+  monthlyInvestment = 0,
   applyLosses,
   frequency
 }: BacktestInput): BacktestResult => {
@@ -244,6 +247,10 @@ export const runBacktest = ({
     ? monthlyWithdrawal / WEEKLY_PERIODS_PER_MONTH
     : monthlyWithdrawal;
 
+  const periodInvestment = frequency === 'WEEKLY'
+    ? monthlyInvestment / WEEKLY_PERIODS_PER_MONTH
+    : monthlyInvestment;
+
   let wins = 0;
   let losses = 0;
 
@@ -264,6 +271,7 @@ export const runBacktest = ({
           strategyReturn: 0,
           profit: 0,
           withdrawal: 0,
+          investment: 0,
           capital: capitalWith,
           lossEvent: false
         });
@@ -315,7 +323,7 @@ export const runBacktest = ({
     const profitWithout = capitalWithout - prevWithout;
     const profitWith = capitalWith - prevWith;
 
-    capitalWith -= periodWithdrawal;
+    capitalWith = capitalWith - periodWithdrawal + periodInvestment;
 
     const effectiveReturn = prevWithout !== 0 ? profitWithout / prevWithout : 0;
 
@@ -326,8 +334,9 @@ export const runBacktest = ({
       time: date,
       assetReturn,
       strategyReturn: effectiveReturn,
-      profit: profitWith,
+      profit: profitWithout,
       withdrawal: periodWithdrawal,
+      investment: periodInvestment,
       capital: capitalWith,
       lossEvent
     });
@@ -395,8 +404,10 @@ export const runBacktest = ({
 
   let monthlyIrr = 0;
   if (numPeriods > 0 && safeCapital > 0) {
+    const netMonthlyFlow = monthlyWithdrawal - monthlyInvestment;
+
     if (frequency === 'MONTHLY') {
-      const cashFlows = [-safeCapital, ...Array(numPeriods).fill(monthlyWithdrawal)];
+      const cashFlows = [-safeCapital, ...Array(numPeriods).fill(netMonthlyFlow)];
       cashFlows[cashFlows.length - 1] += finalCapitalWithWithdrawal;
       const irr = calculateIrr(cashFlows);
       monthlyIrr = irr === null ? 0 : irr * 100;
@@ -404,8 +415,8 @@ export const runBacktest = ({
       const perMonth = periodsPerMonth(frequency);
       const cashFlows = [-safeCapital];
       for (let i = 0; i < numPeriods; i += 1) {
-        const shouldWithdraw = ((i + 1) % perMonth) < 1;
-        cashFlows.push(shouldWithdraw ? monthlyWithdrawal : 0);
+        const shouldExchange = ((i + 1) % perMonth) < 1;
+        cashFlows.push(shouldExchange ? netMonthlyFlow : 0);
       }
       cashFlows[cashFlows.length - 1] += finalCapitalWithWithdrawal;
       const irr = calculateIrr(cashFlows);
